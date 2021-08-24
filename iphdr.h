@@ -22,7 +22,7 @@ struct IpHdr final{
     Ip sip_;
     Ip dip_;
 
-    uint8_t protocol() {return ntohs(protocol_);}
+    uint8_t protocol() {return protocol_;}
     uint16_t tlen() {return ntohs(tlen_);}
     uint16_t offset() {return ntohs(offset_);}
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
+#include "iphdr.h"
 
 struct TcpHdr {
     uint16_t sport_;
@@ -30,3 +31,11 @@ struct TcpHdr {
     };
 };
 typedef TcpHdr *PTcpHdr;
+
+typedef struct PseudoHdr {
+    Ip sip_;
+    Ip dip_;
+    uint8_t rsv_ = 0;
+    uint8_t protocol_;
+    uint16_t tlen_;
+}PseudoHdr;

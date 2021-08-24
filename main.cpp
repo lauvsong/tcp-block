@@ -1,5 +1,7 @@
 #include "my-func.h"
 
+Mac mymac;
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         usage();
@@ -27,8 +29,12 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "pcap_next_ex return %d(%s)\n", res, pcap_geterr(handle));
             exit(-1);
         }
-        if (!is_target(packet, pattern)) continue;
-        forward();
-        backward();
+        if (!is_match(packet, pattern)) continue;
+        printf("matched\n");
+
+        forward(handle, packet);
+        printf("forwarded\n");
+        backward(handle, packet);
+        printf("backwarded\n");
     }
 }

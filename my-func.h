@@ -1,5 +1,8 @@
 #pragma once
 
+#define PAYLOAD "HTTP/1.0 302 Redirect\r\nLocation: http://warning.or.kr\r\n"
+#define PAYLOAD_SIZE 59
+
 #include <cstdio>
 #include <string.h>
 #include <pcap.h>
@@ -15,18 +18,23 @@
 #include "tcphdr.h"
 
 #pragma pack(push, 1)
-struct TcpPacket final {
+typedef struct TcpPacket final {
     EthHdr eth_;
     ArpHdr arp_;
     IpHdr  ip_;
     TcpHdr tcp_;
-};
+    char* data_;
+}TcpPacket;
+typedef TcpPacket *PTcpPacket;
 #pragma pack(pop)
 
-Mac mymac;
+extern Mac mymac;
 
 void usage();
 Mac resolve_mymac(char* interface);
-bool is_target(const u_char* packet, char* pattern);
-void forward(TcpPacket org);
-void backward(TcpPacket org);
+uint16_t calc_checksum(uint16_t* buf, uint size);
+uint16_t resolve_IPchecksum(PIpHdr packet);
+uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, uint data_size);
+bool is_match(const u_char* packet, char* pattern);
+void forward(pcap_t* handle , const u_char* org_pkt);
+void backward(pcap_t* handle, const u_char* org_pkt);
