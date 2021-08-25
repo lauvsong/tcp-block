@@ -56,8 +56,7 @@ uint16_t resolve_IPchecksum(PIpHdr packet){
     return calc_checksum((uint16_t*)packet,20);
 }
 
-uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, uint data_size){
-    u_char* data = (u_char*)(tcph + sizeof(TcpHdr));
+uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, u_char* data, uint data_size){
     PseudoHdr psdh;
 
     psdh.dip_ = iph->dip_;
@@ -65,8 +64,8 @@ uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, uint data_size){
     psdh.protocol_ = iph->protocol_;
     psdh.tlen_ = htons(sizeof(TcpHdr)+data_size);
 
-    u_char* buf = nullptr;
-    memcpy(buf, tcph, sizeof(PseudoHdr));
+    u_char buf[65536];
+    memcpy(buf, &psdh, sizeof(PseudoHdr));
     memcpy(buf+sizeof(PseudoHdr), tcph, sizeof(TcpHdr));
     memcpy(buf+sizeof(PseudoHdr)+sizeof(TcpHdr), data, data_size);
 
@@ -74,7 +73,7 @@ uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, uint data_size){
     return calc_checksum((uint16_t*)buf,data_size);
 }
 
-bool is_match(const u_char* packet, char* pattern) {
+bool is_match(const u_char* packet, char pattern[]) {
     const u_char* pkt = packet;
 
     PEthHdr eth_hdr = (PEthHdr)pkt;
@@ -86,71 +85,79 @@ bool is_match(const u_char* packet, char* pattern) {
 
     pkt += sizeof(IpHdr);
     PTcpHdr tcp_hdr = (PTcpHdr)pkt;
-    const u_char* data = pkt + tcp_hdr->offset();
+    const u_char* http_hdr = pkt + tcp_hdr->offset();
+    const uint http_size = ip_hdr->tlen() - sizeof(IpHdr) - tcp_hdr->offset();
 
-    if (strstr((char*)data, pattern) == NULL) return false;
-    printf("2\n");
-    return true;
+    //if (strstr((char*)data, pattern) == NULL) return false;
+
+    for (uint i=0;i<http_size-6;i++){
+        if (memcmp(http_hdr + i, "Host: ", 6)) continue;
+        if (!memcmp(http_hdr + i + 6, pattern, strlen(pattern))) return true;
+        break;
+    }
+    return false;
 }
 
-void forward(pcap_t* handle, const u_char* org_pkt){
+void forward(pcap_t* handle, Mac mymac, const u_char* org_pkt){
     PTcpPacket org = (PTcpPacket)org_pkt;
     uint data_size = org->ip_.tlen() - sizeof(IpHdr) - org->tcp_.offset();
 
-    PTcpPacket packet = nullptr;
+    TcpPacket packet;
 
-    packet->eth_.smac_ = mymac;
-    packet->eth_.dmac_ = org->eth_.dmac();
-    packet->eth_.type_ = htons(EthHdr::Ip4);
+    packet.eth_.smac_ = mymac;
+    packet.eth_.dmac_ = org->eth_.dmac();
+    packet.eth_.type_ = htons(EthHdr::Ip4);
 
-    packet->ip_.tlen_ = htons(sizeof(IpHdr) + sizeof(TcpHdr));
-    packet->ip_.ttl_ = org->ip_.ttl_;
-    packet->ip_.sip_ = org->ip_.sip_;
-    packet->ip_.dip_ = org->ip_.dip_;
+    packet.ip_.tlen_ = htons(sizeof(IpHdr) + sizeof(TcpHdr));
+    packet.ip_.ttl_ = org->ip_.ttl_;
+    packet.ip_.sip_ = org->ip_.sip_;
+    packet.ip_.dip_ = org->ip_.dip_;
 
-    packet->tcp_.sport_ = org->tcp_.sport_;
-    packet->tcp_.dport_ = org->tcp_.dport_;
-    packet->tcp_.seq_ = htonl(ntohl(org->tcp_.seq_) + data_size);
-    packet->tcp_.ack_ = org->tcp_.ack_;
-    packet->tcp_.flag_ = TcpHdr::RST;
+    packet.tcp_.sport_ = org->tcp_.sport_;
+    packet.tcp_.dport_ = org->tcp_.dport_;
+    packet.tcp_.seq_ = htonl(ntohl(org->tcp_.seq_) + data_size);
+    packet.tcp_.ack_ = org->tcp_.ack_;
+    packet.tcp_.flag_ = TcpHdr::RST;
 
-    packet->ip_.chksum_ = resolve_IPchecksum((PIpHdr)&packet->ip_);
-    packet->tcp_.chksum_ = resolve_TCPchecksum((PIpHdr)&packet->ip_, (PTcpHdr)&packet->tcp_, data_size);
+    packet.ip_.chksum_ = resolve_IPchecksum((PIpHdr)&packet.ip_);
+    packet.tcp_.chksum_ = resolve_TCPchecksum((PIpHdr)&packet.ip_, (PTcpHdr)&packet.tcp_, nullptr,0);
 
-    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthHdr) + packet->ip_.offset());
+    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthHdr) + packet.ip_.tlen());
+    printf("%d\n", res);
     if (res != 0){
         fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
         exit(-1);
     }
 }
 
-void backward(pcap_t* handle, const u_char* org_pkt){
+void backward(pcap_t* handle, Mac mymac, const u_char* org_pkt){
     PTcpPacket org = (PTcpPacket)org_pkt;
     uint data_size = org->ip_.tlen() - sizeof(IpHdr) - org->tcp_.offset();
 
-    PTcpPacket packet = nullptr;
+    TcpPacket packet;
 
-    packet->eth_.smac_ = mymac;
-    packet->eth_.dmac_ = org->eth_.dmac();
-    packet->eth_.type_ = htons(EthHdr::Ip4);
+    packet.eth_.smac_ = mymac;
+    packet.eth_.dmac_ = org->eth_.dmac();
+    packet.eth_.type_ = htons(EthHdr::Ip4);
 
-    packet->ip_.tlen_ = htons(sizeof(IpHdr) + sizeof(TcpHdr) + PAYLOAD_SIZE); // if FIN -> add data
-    packet->ip_.ttl_ = 0x80;
-    packet->ip_.sip_ = org->ip_.dip_;
-    packet->ip_.dip_ = org->ip_.sip_;
+    packet.ip_.tlen_ = htons(sizeof(IpHdr) + sizeof(TcpHdr) + PAYLOAD_SIZE); // if FIN -> add data
+    packet.ip_.ttl_ = 0x80;
+    packet.ip_.sip_ = org->ip_.dip_;
+    packet.ip_.dip_ = org->ip_.sip_;
 
-    packet->tcp_.sport_ = org->tcp_.dport_;
-    packet->tcp_.dport_ = org->tcp_.sport_;
-    packet->tcp_.seq_ = htonl(ntohl(org->tcp_.ack_) + data_size);
-    packet->tcp_.ack_ = org->tcp_.seq_;
-    packet->tcp_.flag_ = TcpHdr::FIN;
+    packet.tcp_.sport_ = org->tcp_.dport_;
+    packet.tcp_.dport_ = org->tcp_.sport_;
+    packet.tcp_.seq_ = htonl(ntohl(org->tcp_.ack_) + data_size);
+    packet.tcp_.ack_ = org->tcp_.seq_;
+    packet.tcp_.flag_ = TcpHdr::FIN;
 
-    packet->ip_.chksum_ = resolve_IPchecksum((PIpHdr)&packet->ip_);
-    packet->tcp_.chksum_ = resolve_TCPchecksum((PIpHdr)&packet->ip_, (PTcpHdr)&packet->tcp_, data_size);
+    packet.ip_.chksum_ = resolve_IPchecksum((PIpHdr)&packet.ip_);
+    packet.tcp_.chksum_ = resolve_TCPchecksum((PIpHdr)&packet.ip_, (PTcpHdr)&packet.tcp_, (u_char*)PAYLOAD, PAYLOAD_SIZE);
 
-    memcpy(packet->data_, PAYLOAD, PAYLOAD_SIZE);
+    memcpy(packet.data_, PAYLOAD, PAYLOAD_SIZE);
 
-    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthHdr) + packet->ip_.offset());
+    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthHdr) + packet.ip_.tlen());
+    printf("%d\n", res);
     if (res != 0){
         fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
         exit(-1);

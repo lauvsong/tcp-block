@@ -1,7 +1,5 @@
 #include "my-func.h"
 
-Mac mymac;
-
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         usage();
@@ -17,9 +15,8 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    mymac = resolve_mymac(dev);
+    Mac mymac = resolve_mymac(dev);
 
-    char* pattern = argv[2];
     while(true){
         struct pcap_pkthdr* header;
         const u_char* packet;
@@ -29,12 +26,14 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "pcap_next_ex return %d(%s)\n", res, pcap_geterr(handle));
             exit(-1);
         }
-        if (!is_match(packet, pattern)) continue;
+        if (!is_match(packet, argv[2])) continue;
         printf("matched\n");
 
-        forward(handle, packet);
+        forward(handle, mymac, packet);
         printf("forwarded\n");
-        backward(handle, packet);
+        backward(handle, mymac, packet);
         printf("backwarded\n");
     }
+
+    pcap_close(handle);
 }

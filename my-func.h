@@ -23,18 +23,16 @@ typedef struct TcpPacket final {
     ArpHdr arp_;
     IpHdr  ip_;
     TcpHdr tcp_;
-    char* data_;
+    char data_[65535];
 }TcpPacket;
 typedef TcpPacket *PTcpPacket;
 #pragma pack(pop)
-
-extern Mac mymac;
 
 void usage();
 Mac resolve_mymac(char* interface);
 uint16_t calc_checksum(uint16_t* buf, uint size);
 uint16_t resolve_IPchecksum(PIpHdr packet);
-uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, uint data_size);
+uint16_t resolve_TCPchecksum(PIpHdr iph, PTcpHdr tcph, u_char* data, uint data_size);
 bool is_match(const u_char* packet, char* pattern);
-void forward(pcap_t* handle , const u_char* org_pkt);
-void backward(pcap_t* handle, const u_char* org_pkt);
+void forward(pcap_t* handle , Mac mymac, const u_char* org_pkt);
+void backward(pcap_t* handle, Mac mymac, const u_char* org_pkt);
