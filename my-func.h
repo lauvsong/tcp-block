@@ -20,7 +20,6 @@
 #pragma pack(push, 1)
 typedef struct TcpPacket final {
     EthHdr eth_;
-    ArpHdr arp_;
     IpHdr  ip_;
     TcpHdr tcp_;
     char data_[65535];
